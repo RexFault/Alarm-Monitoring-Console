@@ -1,0 +1,71 @@
+SIA DC-09 Notes
+
+Data May be encrypted, not using encryption in my case currently so no notes taken on the encrypted requirements
+
+Data starts with line feed (\n) 0x0A
+Data ends with carriage return (\r) 0x0D
+
+PE may send two types of messages: events and link supervision. (PE is Premises Equipment (Panels))
+CSRs send only one type of message, acknowledgment, which may have three types: ACK, NAK, or DUH. (CSR = Central Station Receiver)
+
+Message format documentation starts on page 16 of document SIA DC-09 in the same folder as these notes
+
+PE to CSR Message Format (DATA/EVENT Message)
+<LF><crc><0LLL>
+<"id"><seq><Rrcvr><Lpref><#acct>[<pad>|...data...][x…data…]<timestamp>
+<CR>
+
+\n(0-9A-Fa-F)
+
+
+<LF> - ASCII Linefeed character transmitted as binary 0x0A
+
+<CRC> - the CRC Calculation of the middle section above beginning at the first " of the Protocol ID and ending at the character right before the CR, transmitted as four ASCII Characters
+
+<0LLL> - Length Element, starts with "0" followed by 3 hex digits in ASCII giving the length of the message, same characters as checked by the CRC, so the middle line above
+
+<"id"> - ASCII Token to indicate the format used in the data field of the message and whether encryption was used, the Quotes are included in the message, minimum CSR required support is "ADM-CID" & "SIA-DCS", PE Equipment can be either
+	*** IF ENCRYPTION IS USED THE ID TOKEN HAS A ASCII * character added after the first quotation to indicate it is encrypted, i.e. Unencrypted would be "SIA-DCS" but encrypted would be "*SIA-DCS" ***
+
+<seq> - PE applies a Sequence number to each message when it's queued, the CSR shall echo the sequence number of the message to which it's replying in it's acknowledgment, the PE shall not increment the sequence number when repeating a message due to comm fail or no response to CSR, the sequence number is incremented only for new messages, transmitted as 4 ASCII characters
+
+<#acct> - appears in both the header informatio of the message which isn't encrypted and the data of the message which may be encrypted, consists of an ASCII '#' followed by 3-16 ASCII characters representing the hex digits for the account number, the header account number may not always match the body account number
+
+<Lpref> - Account Prefix - extends id information provided by the account number, required and consists of an ASCII 'L' followed by 1-6 HEX ASCII digits for the account prefix, when not required by the PE "L0" should be transmitted
+
+<Rrcvr> - Receiver Number - Additional ID info, optional and consists of an ASCII "R" followed by 1-6 HEX ASCII digital for the reciever number, when PE doesn't need to send nothing shall be transmitted
+
+[DATA]  or [<pad>|DATA]  - Message Data - All data is in ASCII characters and the bracket characters '[' ']' are included in the transmitted message, the data field format is dependent upon the ID token of the message, where an account number is associated with a message (most messages) the account number appears at the start of the data preceded by the "#" character followed by the '|' field separator, <pad> is for encrypted message types
+
+[x...data...] - Optional Extended Data - allows the PE to attach additional information to the message by including one or more optional extended data fields, optional for PE, reciever should be able to recieve and process a message containing the optional extended data, use of the data is optional for the reciever, starts with "[" followed by a single ASCII character (data identifier) that ids the content of the data field. the data id may be any upper ascii character in the range A-Z and terminated by the character "]", see document for detailed information on this field
+
+<timestamp> - included in encrypted messages and may be included in unencrypted messages, used to provide protection against message playback. Indicates when the event was queued for transmission to the central station and may indicate a timme significantly different than the time of event occurrance, always transmitted with a reference of GMT
+	- Format is <_HH:MM:SS,MM-DD-YYYY> - braces not part of message but the underscore, colon,comma,hyphen are, 0 filled. Length should be exactly 20 characters and all are transmitted as ASCII characters
+	-CSR shall validate the timestamp against it's own GMT reference and encrypted messages with a difference from the CSR greater than +20/-40 seconds shall be rejected with a NAK packet that contains the current GMT time known to the CSR in the data field. Allowed time difference may be configured for CSR, PE shall then re-encrypt the message with an updated timestamp when retrying a message in response to a NAK containing a corrected GMT time
+
+<CR> - the ASCII Carriage return character transmitted as a binary value 0x0D
+
+Supervision Message
+-When configured PE may periodically send Null messages to the CSR and the CSR should respond with an ACK message
+UNENCRYPTED NULL MESSAGE:
+<LF><CRC><0LLL><"NULL"><0000><Rrcvr><Lpref><#acct>[]<timestamp><CR>
+UNENCRYPTED ACK Message:
+<LF><CRC><0LLL><"ACK"><seq><Rrcvr><Lpref><#acct>[]<CR>
+NAK - Ignored as it's only used during encryption
+DUH - Unable Acknowledgement
+-sent when CSR can't process an otherwise correctly recieved message
+<LR><CRC><0LLL><"DUH"><seq><Rrcvr><Lpref><#acct>[]<CR>
+
+
+EXAMPLE Messages - Start on page 27 of the documentation
+
+Common Values in the messsage below are:
+SEQ: 9876	RCVR: 579BDF	pref: 789ABC	acct: 12345A
+
+EXAMPLES:
+Fire Alarm, Zone 129, SIA DC-04 FOrmat, Not Encrypted, No Timestamp
+<0x0A>CE110032"SIA-DCS"9876R579BDFL789ABC#12345A[#12345A|NFA129]<0x0D>
+0x0A - LF	CE11 - CRC	0032 - 0LLL (Length) (0x32 = 50)
+"SIA-DCS" - Format	<seq> - 9876 <Rrcvr> = R579BDF <Lpref> = L789ABC
+<acct#> = #12345A <data> = [#12345A|NFA129] <0x0D> - CR
+
