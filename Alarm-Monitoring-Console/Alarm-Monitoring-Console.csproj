@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="MySql.Data" Version="9.7.0" />
     <PackageReference Include="Nito.HashAlgorithms" Version="1.0.1" />
   </ItemGroup>
 

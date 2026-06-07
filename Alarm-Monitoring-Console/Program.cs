@@ -1,7 +1,10 @@
-﻿using System.Net;
+﻿using System.Data.SqlClient;
+using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using static System.Net.Mime.MediaTypeNames;
+using MySql.Data.MySqlClient;
 
 namespace Alarm_Monitoring_Console
 {
@@ -11,9 +14,13 @@ namespace Alarm_Monitoring_Console
         private const int _listenPort = 3060;
         private static Socket _listenSocket;
         private static List<Socket> _clientSockets = new List<Socket>();
-
+        
         static void Main(string[] args)
         {
+
+            string connString = $"Server={DBSecrets.databaseServer};Database={DBSecrets.databaseName};User ID={DBSecrets.databaseUsername};Password={DBSecrets.databasePassword};";
+            MySqlConnection conn = null ;
+
 
             bool isRunning = true;
             _listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
@@ -21,7 +28,24 @@ namespace Alarm_Monitoring_Console
             _listenSocket.Listen(10);
 
             ShowBanner();
+
+            //Connect to DB
+            try
+            {
+                conn = new MySqlConnection(connString);
+                LogMessage("Trying to connect to Database...");
+                conn.Open();
+                LogMessage($"Connected to Database: {DBSecrets.databaseServer}/{DBSecrets.databaseName}");
+            }
+            catch (Exception ex)
+            {
+                LogMessage(ex.Message);
+                return; //Failed to connect, quit program
+            }
+
+
             Console.WriteLine($"Server started on port {_listenPort}. Polling for activity...");
+            //DC09ParserTest();
 
             do
             {
@@ -38,7 +62,7 @@ namespace Alarm_Monitoring_Console
                 {
                     if (sock == _listenSocket) //There's a new Connection!
                         HandleNewConnection();
-                    HandleClientData(sock);
+                    HandleClientData(sock, conn);
                 }
 
                 //Remove closed/invalid sockets from our tracking
@@ -51,6 +75,8 @@ namespace Alarm_Monitoring_Console
                 }
 
             } while (isRunning);
+
+            conn.Close();
         }
 
         private static void HandleNewConnection() {
@@ -67,7 +93,7 @@ namespace Alarm_Monitoring_Console
 
         }
 
-        private static void HandleClientData(Socket client) {
+        private static void HandleClientData(Socket client, MySqlConnection dbConnection) {
 
             //We want to read up to the first \r since our messages are wrapped in 
             //\n{data}/r
@@ -96,7 +122,7 @@ namespace Alarm_Monitoring_Console
 
                 //This is where we handle our actual recieved message:
                 LogMessage($"[RECIEVED] - FROM {client.RemoteEndPoint} : {rawMessage}");
-                HandleProtocolData(rawMessage);
+                HandleProtocolData(rawMessage, client, dbConnection);
 
             }
             catch (SocketException ex)
@@ -108,10 +134,57 @@ namespace Alarm_Monitoring_Console
 
         }
 
-        private static void HandleProtocolData(string rawData)
+        private static void HandleProtocolData(string rawData, Socket client, MySqlConnection dbConnection)
         {
             DC09Parser parser = new DC09Parser(rawData);
+            //Confirm data good
+            if (parser.CheckCRCMatch())
+            {
+                LogMessage("CRC Good!");
+                if (parser.ProtocolID == "NULL")
+                {
+                    string ackMessage = DC09Parser.CreateACK(parser.MessageSeq, parser.ReceiverNum, parser.LinePrefix, parser.AccountNumber);
+                    byte[] asciiBytes = Encoding.ASCII.GetBytes(ackMessage);
+                    int bytesSent = 0;
+                    int bytesLeft = asciiBytes.Length;
+                    do
+                    {
+                        int bytesSentNow = client.Send(asciiBytes, bytesSent, bytesLeft, SocketFlags.None);
+                        bytesSent += bytesSentNow;
+                        bytesLeft -= bytesSentNow;
+
+                    } while (bytesLeft > 0);
+                    LogMessage($"ACK Sent to {client.RemoteEndPoint} for Account: {parser.AccountNumber}");
+                }
+            }
+
+
             Dictionary<string, string> parsedData = parser.GetDictionary();
+
+            //Write the data to the database
+            string sqlCommand = "INSERT INTO events (account_number, raw_message, protocol, receiver_number, line_prefix, message_data, message_xdata, message_timestamp) " +
+                "VALUES (@account_number, @raw_message, @protocol, @receiver_number, @line_prefix, @message_data, @message_xdata, @message_timestamp);";
+
+            try
+            {
+                MySqlCommand sqlCmd = new MySqlCommand(sqlCommand, dbConnection);
+                sqlCmd.Parameters.AddWithValue("@account_number", parser.AccountNumber);
+                sqlCmd.Parameters.AddWithValue("@raw_message", parser.RawMessage);
+                sqlCmd.Parameters.AddWithValue("@protocol", parser.ProtocolID);
+                sqlCmd.Parameters.AddWithValue("@receiver_number", (parser.ReceiverNum.Length > 0) ? parser.ReceiverNum : "0");
+                sqlCmd.Parameters.AddWithValue("@line_prefix", (parser.LinePrefix.Length > 0) ? parser.LinePrefix : "0");
+                sqlCmd.Parameters.AddWithValue("@message_data", parser.MessageData);
+                sqlCmd.Parameters.AddWithValue("@message_xdata", (parser.MessageXData.Length > 0) ? parser.MessageXData : "");
+                sqlCmd.Parameters.AddWithValue("@message_timestamp", (parser.MessageTimestamp.Length > 0) ? parser.MessageTimestamp : "_00:00:00,00-00-0000");
+
+                sqlCmd.ExecuteNonQuery();
+
+            }
+            catch (Exception ex)
+            {
+                LogMessage(ex.Message);
+            }
+
             foreach (KeyValuePair<string, string> pair in parsedData)
             {
 
