@@ -141,7 +141,8 @@ namespace Alarm_Monitoring_Console
             if (parser.CheckCRCMatch())
             {
                 LogMessage("CRC Good!");
-                if (parser.ProtocolID == "NULL")
+                //if (parser.ProtocolID == "NULL")
+                if (true) //We should always send a positive acknowlegement to messages sent without errors
                 {
                     string ackMessage = DC09Parser.CreateACK(parser.MessageSeq, parser.ReceiverNum, parser.LinePrefix, parser.AccountNumber);
                     byte[] asciiBytes = Encoding.ASCII.GetBytes(ackMessage);
