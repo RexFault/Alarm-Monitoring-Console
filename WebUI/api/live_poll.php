@@ -38,13 +38,44 @@
 	for ($i = 0; $i < $num_rows; $i++) {
 		
 		$row = $results->fetch_assoc();
+		
+		if($row['protocol'] == 'ADM-CID')
+		{
+			require_once("adm_cid_parser.php");
+			$processedData = parseAdemcoData($row['message_data']);
+			if ($processedData == false) {
+				//Make Trouble DATA
+				/*
+				*	EventType: NEW | RESTORAL
+				*	MessageType: ALARM | TROUBLE | INFO
+				*	EventMessage: Text representation of code
+				*	ParitionNumber: Partition Number
+				*	ZoneNumber: Zone Number
+				*/
+				$processedData['EventType'] = 'NEW';
+				$processedData['MessageType'] = 'TROUBLE';
+				$processedData['EventMessage'] = 'Unable to Process ADM-CID Message Data';
+				$processedData['ParitionNumber'] = '00';
+				$processedData['ZoneNumber'] = '00';
+			}
+		}
+		else {
+			
+			$processedData['EventType'] = 'NEW';
+			$processedData['MessageType'] = 'TROUBLE';
+			$processedData['EventMessage'] = 'Unhandled CID Protocol';
+			$processedData['ParitionNumber'] = '00';
+			$processedData['ZoneNumber'] = '00';
+			
+		}
+		
 		echo "[\r\n"; //Start item
 		echo '"' . $row['id'] . "\",\r\n"; //Item ID
-		echo '"ALARM"' . ",\r\n"; //MSG TYPE  - For Now ALARM always
+		echo '"' . $processedData['MessageType'] . "\",\r\n"; //MSG TYPE  - For Now ALARM always
 		echo '"' . date('H:i:s,m:d:Y') . "\",\r\n"; //Timestamp FOR NOW WE're just going to echo the current timestamp
 		echo '"' . $row['account_number'] . "\",\r\n";
 		echo '"SAMPLE"' . ",\r\n"; //Company name, currently just sample no matter what
-		echo '"' . addslashes($row['message_data']) . "\",\r\n";
+		echo '"' . $processedData['EventMessage'] . "\",\r\n";
 		echo '"' . $row['protocol'] . "\",\r\n";
 		echo '"' . addslashes(trim($row['raw_message'])) . "\"\r\n";
 		if ($i == ($num_rows-1)) {

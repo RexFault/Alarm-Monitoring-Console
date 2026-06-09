@@ -23,9 +23,11 @@
 					//table.rows.add(data).draw();
 					var processedData = JSON.parse(data);
 					for(let i = 0; i< processedData.length; i++) {
-						if (processedData[i][0] > last_id)
+						console.log("Current ID is " + processedData[i][0]);
+						if (Number(processedData[i][0]) > Number(last_id)) {
 							last_id = processedData[i][0];
 							console.log("last_id set to: " + last_id);
+						}
 					}
 					table.rows.add(processedData).draw(false);
 					//console.log(data);
@@ -37,7 +39,25 @@
 			$(document).ready( function () {
 				//$('#alarmData').DataTable();
 				table = new DataTable("#alarmData", {
-					order: [[0, 'desc']]
+					order: [[0, 'desc']],
+					columnDefs: [ {
+						targets: 1,
+						createdCell: function(td, cellData, rowData, row, col) {
+							if (cellData == "ALARM") {
+								$(td).addClass('cell-alarm');
+							}
+							else if (cellData == "TROUBLE") {
+								$(td).addClass('cell-trouble');
+							}
+							else if (cellData == "HEARTBEAT") {
+								$(td).addClass('cell-heartbeat');
+							}
+							else if (cellData == "RESTORAL") {
+								$(td).addClass('cell-restoral');
+							}
+						}
+					}]
+					
 				});
 				doPoll();
 			} );
